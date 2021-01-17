@@ -114,11 +114,8 @@ const AttendantsComponent = () => {
     setSocket(newSocket);
 
     navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: {
-        width: 240,
-        height: 240
-      }
+      // audio: true,
+      video: {}
     }).then(stream => {
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
@@ -182,7 +179,7 @@ const AttendantsComponent = () => {
 
   return (
     <div>
-        <video
+        {/* <video
           style={{
             width: 240,
             height: 240,
@@ -192,7 +189,7 @@ const AttendantsComponent = () => {
           muted
           ref={ localVideoRef }
           autoPlay>
-        </video>
+        </video> */}
         {users.map((user, index) => {
           return(
             <Video

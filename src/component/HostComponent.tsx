@@ -3,8 +3,9 @@ import io from 'socket.io-client';
 import { useRef } from 'react';
 import { useEffect } from 'react';
 import Video from './Components/Video';
+import { RouteComponentProps } from 'react-router-dom';
 
-const HostComponent = () => {
+const HostComponent = ({match} : RouteComponentProps) => {
 
   const [socket, setSocket] = useState<SocketIOClient.Socket>();
   const [users, setUsers] = useState<Array<IWebRTCUser>>([]);
@@ -44,7 +45,7 @@ const HostComponent = () => {
             newSocket.emit('offer', {
               sdp: sdp,
               offerSendID: newSocket.id,
-              offerSendEmail: 'offerSendSample@sample.com',
+              offerSendEmail: `${((match.params) as any).room}@sample.com`,
               offerReceiveID: allUsers[i].id
             });
           })
@@ -189,7 +190,7 @@ const HostComponent = () => {
           ref={ localVideoRef }
           autoPlay>
         </video>
-        {users.map((user, index) => {
+        {/* {users.map((user, index) => {
           return(
             <Video
               key={index}
@@ -197,7 +198,7 @@ const HostComponent = () => {
               stream={user.stream}
             />
           );
-        })}
+        })} */}
       </div>
   );
 }
