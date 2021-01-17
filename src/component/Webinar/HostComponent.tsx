@@ -20,9 +20,6 @@ function HostComponent() {
             }
           }).then(stream => {
             localVideoRef.current!.srcObject = stream;
-      
-            if(socket)
-                socket.emit('join_room', {room: '1234', email: 'sample@naver.com'});
           }).catch(error => {
             console.log(`getUserMedia error: ${error}`);
           });
@@ -30,7 +27,11 @@ function HostComponent() {
 
     const onAir = useCallback(() => {
         setIsAir(true);
-    }, [isAir]);
+
+        socket!.emit('join_host', {
+            room: 1
+        })
+    }, [isAir, socket]);
 
     return (
         <VideoWrap>
