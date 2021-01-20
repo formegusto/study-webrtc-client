@@ -5,7 +5,7 @@ const Container = Styled.div`
     position: relative;
     display: inline-block;
     width: 240px;
-    height: 270px;
+    height: 240px;
     margin: 5px;
 `;
 
@@ -15,20 +15,12 @@ const VideoContainer = Styled.video`
     background-color: black;
 `;
 
-const UserLabel = Styled.p`
-    display: inline-block;
-    position: absolute;
-    top: 230px;
-    left: 0px;
-`;
-
 interface Props {
-    email: string;
     stream: MediaStream;
     muted?: boolean;
 }
 
-const Video = ({email, stream, muted}: Props) => {
+const Video = ({stream, muted}: Props) => {
     const ref = useRef<HTMLVideoElement>(null);
     const [isMuted, setIsMuted] = useState<boolean>(false);
 
@@ -44,7 +36,6 @@ const Video = ({email, stream, muted}: Props) => {
                 muted={isMuted}
                 autoPlay
             ></VideoContainer>
-            <UserLabel>{email}</UserLabel>
         </Container>
     );
 }

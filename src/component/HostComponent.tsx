@@ -5,14 +5,15 @@ import { useEffect } from 'react';
 import Video from './Components/Video';
 import { RouteComponentProps } from 'react-router-dom';
 
-const HostComponent = ({match} : RouteComponentProps) => {
+const HostComponent = ({ match } : RouteComponentProps) => {
 
   const [socket, setSocket] = useState<SocketIOClient.Socket>();
   const [users, setUsers] = useState<Array<IWebRTCUser>>([]);
 
   let localVideoRef = useRef<HTMLVideoElement>(null);
 
-  let pcs: any;
+  let sendPC: RTCPeerConnection;
+  let receivePCs: any;
   
   const pc_config = {
     "iceServers": [
@@ -28,85 +29,68 @@ const HostComponent = ({match} : RouteComponentProps) => {
   }
 
   useEffect(() => {
-    let newSocket = io.connect('http://localhost:8085');
+    let newSocket = io.connect('http://localhost:8080');
     let localStream: MediaStream;
 
-    newSocket.on('all_users', (allUsers: Array<{id: string, email: string}>) => {
-      let len = allUsers.length;
+    newSocket.on('userEnter', (data: {id: string}) => {
+      createReceivePC(data.id, newSocket);
+    });
 
+    newSocket.on('allUsers', (data: {users: Array<{id: string}>}) => {
+      let len = data.users.length;
       for (let i = 0; i < len; i++) {
-        createPeerConnection(allUsers[i].id, allUsers[i].email, newSocket, localStream);
-        let pc: RTCPeerConnection = pcs[allUsers[i].id];
-        if (pc) {
-          pc.createOffer({offerToReceiveAudio: true, offerToReceiveVideo: true})
-          .then(sdp => {
-            console.log('create offer success');
-            pc.setLocalDescription(new RTCSessionDescription(sdp));
-            newSocket.emit('offer', {
-              sdp: sdp,
-              offerSendID: newSocket.id,
-              offerSendEmail: `${((match.params) as any).room}@sample.com`,
-              offerReceiveID: allUsers[i].id
-            });
-          })
-          .catch(error => {
-            console.log(error);
-          })
-        }
+        createReceivePC(data.users[i].id, newSocket);
       }
     });
-  
-    newSocket.on('getOffer', (data: {sdp: RTCSessionDescription, offerSendID: string, offerSendEmail: string}) => {
 
-      console.log('get offer');
-      createPeerConnection(data.offerSendID, data.offerSendEmail, newSocket, localStream);
-      let pc: RTCPeerConnection = pcs[data.offerSendID];
-      if (pc) {
-        pc.setRemoteDescription(new RTCSessionDescription(data.sdp)).then(() => {
-          console.log('answer set remote description success');
-          pc.createAnswer({offerToReceiveVideo: true, offerToReceiveAudio: true})
-          .then(sdp => {
-            
-           console.log('create answer success');
-            pc.setLocalDescription(new RTCSessionDescription(sdp));
-            newSocket.emit('answer', {
-              sdp: sdp, 
-              answerSendID: newSocket.id,
-              answerReceiveID: data.offerSendID
-            });
-          })
-          .catch(error => {
-            console.log(error);
-          })
-        })
+    newSocket.on('userExit', (data: {id: string}) => {
+      receivePCs[data.id].close();
+      delete receivePCs[data.id];
+      setUsers(users => users.filter(user => user.id !== data.id));
+    });
+
+    newSocket.on('getSenderAnswer', async (data: {sdp: RTCSessionDescription}) => {
+      try {
+        console.log('get sender answer');
+        await sendPC.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      } catch (error) {
+        console.log(error);
       }
     });
-  
-    newSocket.on('getAnswer', (data: {sdp: RTCSessionDescription, answerSendID: string}) => {
-      
-      console.log('get answer');
-      let pc: RTCPeerConnection = pcs[data.answerSendID];
-      if (pc) {
-        pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-      }
-      //console.log(sdp);
-    });
-  
-    newSocket.on('getCandidate', (data: {candidate: RTCIceCandidateInit, candidateSendID: string}) => {
-      console.log('get candidate');
-      let pc: RTCPeerConnection = pcs[data.candidateSendID];
-      if (pc) {
-        pc.addIceCandidate(new RTCIceCandidate(data.candidate)).then(() => {
-          console.log('candidate add success');
-        })
+
+    newSocket.on('getSenderCandidate', async(data: {candidate: RTCIceCandidateInit}) => {
+      try {
+        console.log('get sender candidate');
+        if (!data.candidate) return;
+        sendPC.addIceCandidate(new RTCIceCandidate(data.candidate));
+        console.log('candidate add success');
+      } catch (error) {
+        console.log(error);
       }
     });
- 
-    newSocket.on('user_exit', (data: {id: string}) => {
-      pcs[data.id].close();
-      delete pcs[data.id];
-      setUsers(oldUsers => oldUsers.filter(user => user.id !== data.id));
-    })
+
+    newSocket.on('getReceiverAnswer', async(data: {id: string, sdp: RTCSessionDescription}) => {
+      try {
+        console.log(`get socketID(${data.id})'s answer`);
+        let pc: RTCPeerConnection = receivePCs[data.id];
+        await pc.setRemoteDescription(data.sdp);
+        console.log(`socketID(${data.id})'s set remote sdp success`);
+      } catch (error) {
+        console.log(error);
+      }
+    });
+
+    newSocket.on('getReceiverCandidate', async(data: {id: string, candidate: RTCIceCandidateInit}) => {
+      try {
+        console.log(`get socketID(${data.id})'s candidate`);
+        let pc: RTCPeerConnection = receivePCs[data.id];
+        if (!data.candidate) return;
+        pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+        console.log(`socketID(${data.id})'s candidate add success`);
+      } catch (error) {
+        console.log(error);
+      }
+    });
 
     setSocket(newSocket);
 
@@ -121,46 +105,82 @@ const HostComponent = ({match} : RouteComponentProps) => {
 
       localStream = stream;
 
-      newSocket.emit('join_room', {room: '1234', email: 'sample@naver.com'});
+      sendPC = createSenderPeerConnection(newSocket, localStream);
+      createSenderOffer(newSocket);
       
+      const { room } = match.params as any;
+      newSocket.emit('joinRoom', {
+        id: newSocket.id,
+        roomID: room,
+        role: "HOST"
+      });
     }).catch(error => {
       console.log(`getUserMedia error: ${error}`);
     });
-    
-    
-
   }, []);
 
-  const createPeerConnection = (socketID: string, email: string, newSocket: SocketIOClient.Socket, localStream: MediaStream): RTCPeerConnection => {
+  const createReceivePC = (id: string, newSocket: SocketIOClient.Socket) => {
+    try {
+      console.log(`socketID(${id}) user entered`);
+      let pc = createReceiverPeerConnection(id, newSocket);
+      createReceiverOffer(pc, newSocket, id);
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  const createSenderOffer = async(newSocket: SocketIOClient.Socket) => {
+    try {
+      let sdp = await sendPC.createOffer({offerToReceiveAudio: false, offerToReceiveVideo: false});
+      console.log('create sender offer success');
+      await sendPC.setLocalDescription(new RTCSessionDescription(sdp));
+
+      const { room } = match.params as any;
+      newSocket.emit('senderOffer', {
+        sdp,
+        senderSocketID: newSocket.id,
+        roomID: room,
+        role: 'HOST'
+      });
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  const createReceiverOffer = async(pc: RTCPeerConnection, newSocket: SocketIOClient.Socket, senderSocketID: string) => {
+    try {
+      let sdp = await pc.createOffer({offerToReceiveAudio: true, offerToReceiveVideo: true});
+      console.log('create receiver offer success');
+      await pc.setLocalDescription(new RTCSessionDescription(sdp));
+
+      const { room } = match.params as any;
+      newSocket.emit('receiverOffer', {
+        sdp,
+        receiverSocketID: newSocket.id,
+        senderSocketID,
+        roomID: room
+      });
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  const createSenderPeerConnection = (newSocket: SocketIOClient.Socket, localStream: MediaStream): RTCPeerConnection => {
 
     let pc = new RTCPeerConnection(pc_config);
 
-    // add pc to peerConnections object
-    pcs = {...pcs, [socketID]: pc};
-
     pc.onicecandidate = (e) => {
       if (e.candidate) {
-        console.log('onicecandidate');
-        newSocket.emit('candidate', {
+        console.log('sender PC onicecandidate');
+        newSocket.emit('senderCandidate', {
           candidate: e.candidate,
-          candidateSendID: newSocket.id,
-          candidateReceiveID: socketID
+          senderSocketID: newSocket.id
         });
       }
     }
 
     pc.oniceconnectionstatechange = (e) => {
       console.log(e);
-    }
-
-    pc.ontrack = (e) => {
-      console.log('ontrack success');
-      setUsers(oldUsers => oldUsers.filter(user => user.id !== socketID));
-      setUsers(oldUsers => [...oldUsers, {
-        id: socketID,
-        email: email,
-        stream: e.streams[0]
-      }]);
     }
 
     if (localStream){
@@ -174,11 +194,45 @@ const HostComponent = ({match} : RouteComponentProps) => {
 
     // return pc
     return pc;
+  }
 
+  const createReceiverPeerConnection = (socketID: string, newSocket: SocketIOClient.Socket): RTCPeerConnection => {
+    let pc = new RTCPeerConnection(pc_config);
+
+    // add pc to peerConnections object
+    receivePCs = {...receivePCs, [socketID]: pc};
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        console.log('receiver PC onicecandidate');
+        newSocket.emit('receiverCandidate', {
+          candidate: e.candidate,
+          receiverSocketID: newSocket.id,
+          senderSocketID: socketID
+        });
+      }
+    }
+
+    pc.oniceconnectionstatechange = (e) => {
+      console.log(e);
+    }
+    
+    pc.ontrack = (e) => {
+      console.log('ontrack success');
+      setUsers(oldUsers => oldUsers.filter(user => user.id !== socketID));
+      setUsers(oldUsers => [...oldUsers, {
+        id: socketID,
+        stream: e.streams[0]
+      }]);
+    }
+
+    // return pc
+    return pc;
   }
 
   return (
     <div>
+        <h1>{`나의 ${(match.params as any).room}번 웨비나`}</h1>
         <video
           style={{
             width: 240,
@@ -190,15 +244,15 @@ const HostComponent = ({match} : RouteComponentProps) => {
           ref={ localVideoRef }
           autoPlay>
         </video>
-        {/* {users.map((user, index) => {
+        <h1>발표자는 이부분이 필요없구</h1>
+        {users.map((user, index) => {
           return(
             <Video
               key={index}
-              email={user.email}
               stream={user.stream}
             />
           );
-        })} */}
+        })}
       </div>
   );
 }
