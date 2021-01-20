@@ -31,11 +31,7 @@ const AttendantComponent = ({ match } : RouteComponentProps) => {
   useEffect(() => {
     let newSocket = io.connect('http://localhost:8080');
     let localStream: MediaStream;
-
-    newSocket.on('userEnter', (data: {id: string}) => {
-      createReceivePC(data.id, newSocket);
-    });
-
+    
     newSocket.on('allUsers', (data: {users: Array<{id: string}>}) => {
       let len = data.users.length;
       for (let i = 0; i < len; i++) {
@@ -46,9 +42,11 @@ const AttendantComponent = ({ match } : RouteComponentProps) => {
     });
 
     newSocket.on('userExit', (data: {id: string}) => {
-      receivePCs[data.id].close();
-      delete receivePCs[data.id];
-      setUsers(users => users.filter(user => user.id !== data.id));
+      if(receivePCs[data.id]) {
+        receivePCs[data.id].close();
+        delete receivePCs[data.id];
+        setUsers(users => users.filter(user => user.id !== data.id));
+      }
     });
 
     newSocket.on('getSenderAnswer', async (data: {sdp: RTCSessionDescription}) => {
